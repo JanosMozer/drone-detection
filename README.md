@@ -1,19 +1,19 @@
 # Aircraft Detection from Audio - Multi-Class Classification
 
-Deep learning system to classify aircraft characteristics from audio recordings using convolutional recurrent neural networks (CRNNs)
+Deep learning system to classify aircraft characteristics from audio recordings using specialized convolutional neural networks (CNNs)
 
 ## Project Overview
 
+This project implements aircraft classification from audio recordings using **four separate specialized models**, each trained for a specific classification task with GPU acceleration support.
 
-### Classification
+### Classification Tasks
 - **Aircraft Detection** (Binary: aircraft vs no aircraft)
 - **Engine Type** (4 classes: Turbofan, Turboprop, Piston, Turboshaft)
-- **Engine Number** (3 classes: 1, 2, 4 engines)
-- **Fuel Type** (2 classes: Kerosene, Gasoline)
+- **Engine Number** (Binary: 1 or 2 engines, excluding 4-engine aircraft)
+- **Fuel Type** (Binary: Kerosene or Gasoline)
 
-### Two Training Approaches
-1. **Single Multi-Output Model** (`train_single_model.py`) - One model predicts all 4 tasks
-2. **Multiple Separate Models** (`train_several_model.py`) - Four individual models for each task
+### Training Approach
+**Multiple Separate Models** - Four independent CNN models, each specialized for one classification task, trained in sequence: binary models first, then multi-class models. Available in both CPU (`train_model.py`) and GPU-optimized (`train_models_CUDA.py`) versions.
 
 ## Dataset Analysis
 
@@ -36,12 +36,14 @@ Deep learning system to classify aircraft characteristics from audio recordings 
 | Piston | 37 | 5.9% | 9.3:1 |
 | Turboshaft | 4 | 0.6% | 1:1 |
 
-#### 2. Engine Number (engnum) - 3 Classes
+#### 2. Engine Number (engnum) - Binary Classification
 | Class | Count | Percentage | Balance Ratio |
 |-------|-------|------------|---------------|
-| 2 engines | 583 | 93.3% | 194.3:1 |
-| 1 engine | 39 | 6.2% | 15.0:1 |
-| 4 engines | 3 | 0.5% | 1:1 |
+| 2 engines | 583 | 93.7% | 14.9:1 |
+| 1 engine | 39 | 6.3% | 1:1 |
+| 4 engines | 3 | **Excluded** | - |
+
+*Note: 4-engine aircraft are excluded from this classification task due to extremely low sample count.*
 
 #### 3. Fuel Type (fueltype) - 2 Classes
 | Class | Count | Percentage | Balance Ratio |
@@ -54,59 +56,62 @@ Deep learning system to classify aircraft characteristics from audio recordings 
 - **Data Integrity**: No missing values in aircraft recordings for classification targets
 - **Class Balance**: Highly imbalanced dataset requiring special handling strategies
 
-## Model Architecture Comparison
+## Model Architecture
 
-### Approach Comparison
+This project uses **four separate specialized CNN models**, each optimized for a specific classification task. This approach allows each model to focus on task-specific features without interference from other classification objectives.
 
-| Feature | Single Multi-Output Model | Multiple Separate Models |
-|---------|---------------------------|-------------------------|
-| **Script** | `train_single_model.py` | `train_several_model.py` |
-| **Models Count** | 1 model with 4 outputs | 4 separate models |
-| **Parameters** | ~24M total | ~96M total (24M × 4) |
-| **Training Time** | 1× training session | 4× training sessions |
-| **Inference Speed** | 1× prediction call | 4× prediction calls |
-| **Memory Usage** | Lower | Higher |
-| **Feature Sharing** | Shared CNN backbone | Independent CNNs |
-| **Knowledge Transfer** | Cross-task learning | No task interaction |
-| **Model Files** | 1 file (.h5) | 4 files (.h5 each) |
-| **Best For** | Related tasks, limited data | Independent tasks, abundant data |
+### Architecture Overview
 
-### Single Multi-Output Model Architecture
+Each model follows the same CNN architecture but is trained independently:
 
 ```
 Input: Audio Spectrogram (128, 107, 1)
     ↓
 ┌─────────────────────────────────────┐
-│        SHARED CNN BACKBONE          │
+│           CNN BACKBONE              │
 │  Conv2D(32) → BatchNorm → MaxPool   │
 │  Conv2D(64) → BatchNorm → MaxPool   │
 │  Conv2D(128) → BatchNorm → MaxPool  │
-│  Flatten → Dense(256) → Dropout     │
+│  Conv2D(256) → BatchNorm → MaxPool  │ ← GPU version
+│  Flatten → Dense(512) → Dropout     │ ← GPU version  
+│  Dense(256) → Dropout               │
 └─────────────────────────────────────┘
     ↓
-┌─────────────┬─────────────┬─────────────┬─────────────┐
-│ is_aircraft │   engtype   │   engnum    │  fueltype   │
-│ Dense(1)    │ Dense(4)    │ Dense(3)    │ Dense(2)    │
-│ sigmoid     │ softmax     │ softmax     │ softmax     │
-└─────────────┴─────────────┴─────────────┴─────────────┘
-     Binary        4 classes    3 classes    2 classes
+┌─────────────────────────────────────┐
+│         TASK-SPECIFIC OUTPUT        │
+│    Dense(n) → Activation            │
+└─────────────────────────────────────┘
 ```
 
-### Multiple Separate Models Architecture
+### Individual Model Specifications
 
-```
-Model 1: Aircraft Detection
-Input: Spectrogram (128, 107, 1) → CNN → Dense → sigmoid (1 output)
+| Model | Task | Output Classes | Activation | Data Filter |
+|-------|------|----------------|------------|-------------|
+| **Model 1** | Aircraft Detection | 1 (Binary) | Sigmoid | All samples |
+| **Model 2** | Engine Number | 1 (Binary) | Sigmoid | 1-2 engine aircraft only |
+| **Model 3** | Fuel Type | 1 (Binary) | Sigmoid | Aircraft samples only |
+| **Model 4** | Engine Type | 4 (Multi-class) | Softmax | Aircraft samples only |
 
-Model 2: Engine Type
-Input: Spectrogram (128, 107, 1) → CNN → Dense → softmax (4 outputs)
+### Training Sequence
 
-Model 3: Engine Number  
-Input: Spectrogram (128, 107, 1) → CNN → Dense → softmax (3 outputs)
+Models are trained in a specific order to optimize training efficiency:
 
-Model 4: Fuel Type
-Input: Spectrogram (128, 107, 1) → CNN → Dense → softmax (2 outputs)
-```
+1. **Binary Models First** (faster convergence):
+   - Aircraft Detection (all data)
+   - Engine Number (filtered data)
+   - Fuel Type (aircraft only)
+
+2. **Multi-class Model Last**:
+   - Engine Type (aircraft only, most complex)
+
+### GPU Optimization Features
+
+The `train_models_CUDA.py` version includes:
+- **Mixed Precision Training** (FP16/FP32) for 2× speed improvement
+- **Optimized Batch Sizes** (64 vs 32 for CPU)
+- **tf.data Pipeline** with prefetching for efficient GPU utilization
+- **Memory Growth** to prevent OOM errors
+- **Enhanced Architecture** with additional layers for better GPU utilization
 
 ## Results and Outputs
 
@@ -141,16 +146,20 @@ All preprocessed data is saved for:
 4. **Normalization**: Apply power-to-decibel conversion for better model training
 
 ### Model Architecture
-- **Base Model**: Convolutional Neural Network
-- **Input**: Mel-spectrogram images (time-frequency representations)
-- **Layers**: Conv2D, MaxPooling2D, Dropout, BatchNormalization
-- **Output**: Multi-class classification with softmax activation
+- **Base Models**: Four separate Convolutional Neural Networks
+- **Input**: Mel-spectrogram images (128×107×1 time-frequency representations)
+- **Layers**: Conv2D, MaxPooling2D, Dropout, BatchNormalization, Dense
+- **Outputs**: Task-specific (Binary: sigmoid, Multi-class: softmax)
+- **Specialization**: Each model optimized for one specific classification task
 
 ### Training Strategy
 - **Data Split**: Stratified train/validation/test split to maintain class proportions
-- **Class Weights**: Applied to handle imbalanced class distributions
-- **Masked Loss**: For multi-output model, ignore non-aircraft samples in multi-class tasks
+- **Class Weights**: Applied to handle imbalanced class distributions  
+- **Masked Loss Functions**: Custom loss functions ignore invalid samples (e.g., non-aircraft for engine classification)
+- **Sequential Training**: Binary models first (faster), then multi-class models
+- **Task-Specific Filtering**: Each model trained only on relevant data samples
 - **Regularization**: Dropout and batch normalization to prevent overfitting
+- **GPU Acceleration**: Mixed precision training and optimized data pipelines for faster training
 
 ## Project Structure
 
@@ -162,25 +171,28 @@ drone-detection/
 │   ├── sample_meta.csv       # Metadata with aircraft information
 │   ├── environment_mappings_raw.csv
 │   └── environment_class_mappings.csv
-├── train_single_model.py      # Single multi-output model training
-├── train_several_model.py     # Multiple separate models training
+├── train_model.py             # CPU-optimized separate models training
+├── train_models_CUDA.py       # GPU-optimized separate models training
+├── evaluation_utils.py        # Modular evaluation and results functions
 ├── analyze_dataset.py         # Dataset analysis script
 ├── get_data.py               # Data download script
-├── model_comparison.md        # Detailed architecture comparison
 ├── README.md                 # This file
 ├── requirements.txt          # Python dependencies
 ├── venv/                    # Virtual environment
 └── results/                  # Training results and outputs
-    ├── multi_output_aircraft_model.h5  # Trained model
-    ├── label_encoders.pkl              # Label encoders
-    ├── training_history.pkl            # Training metrics
-    ├── training_charts.png             # Training visualization
-    ├── results_summary.json            # Performance summary
-    ├── X_train.npy                    # Processed training data
-    ├── X_val.npy                      # Processed validation data
-    ├── X_test.npy                     # Processed test data
-    ├── y_train.pkl                    # Training labels
-    ├── y_val.pkl                      # Validation labels
-    └── y_test.pkl                     # Test labels
+    ├── is_aircraft_model.h5           # Aircraft detection model
+    ├── engtype_model.h5               # Engine type classification model
+    ├── engnum_model.h5                # Engine number classification model
+    ├── fueltype_model.h5              # Fuel type classification model
+    ├── label_encoders.pkl             # Label encoders for all tasks
+    ├── training_histories.pkl         # Training metrics for all models
+    ├── training_charts_separate_models.png  # Training visualizations
+    ├── performance_results_separate_models.json  # Performance summary
+    ├── X_train.npy                   # Processed training data
+    ├── X_val.npy                     # Processed validation data
+    ├── X_test.npy                    # Processed test data
+    ├── y_train.pkl                   # Training labels
+    ├── y_val.pkl                     # Validation labels
+    └── y_test.pkl                    # Test labels
 ```
 

@@ -14,13 +14,13 @@ from tensorflow.keras.layers import Conv2D, Dense, Flatten, MaxPooling2D, Dropou
 from tensorflow.keras import regularizers
 from sklearn.metrics import average_precision_score, PrecisionRecallDisplay
 from sklearn.utils import class_weight
-tf.get_logger().setLevel('ERROR')
-
-# Additional imports for multi-class classification
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
+from evaluation_utils import save_separate_models_results, evaluate_separate_models
+
+tf.get_logger().setLevel('ERROR')
 
 # Load the dataset
 df = pd.read_csv('dataset/sample_meta.csv')
@@ -33,12 +33,12 @@ AUDIO_DIR = 'dataset/audio/audio'
 TARGET_COLUMNS = {
     'is_aircraft': 'class',  # Binary: aircraft vs no aircraft
     'engtype': 'engtype',    # 4 classes: Turbofan, Turboprop, Piston, Turboshaft
-    'engnum': 'engnum',      # 3 classes: 1, 2, 4 engines
-    'fueltype': 'fueltype'   # 2 classes: Kerosene, Gasoline
+    'engnum': 'engnum',      # Binary: 1 or 2 engines (excluding 4-engine aircraft)
+    'fueltype': 'fueltype'   # Binary: Kerosene or Gasoline
 }
 
-# Multi-output model setup - predict all 4 categories simultaneously
-print("Training multi-output model for all 4 tasks simultaneously")
+# Multiple separate models setup - train 4 independent models
+print("Training 4 separate models, one for each task")
 
 def get_audio_path_and_labels(df, filename):
     """Get audio file path and all target labels for multi-output classification"""
@@ -58,7 +58,11 @@ def get_audio_path_and_labels(df, filename):
     # For aircraft recordings, get additional labels
     if row['class'] == 1:
         labels['engtype'] = row['engtype']
-        labels['engnum'] = row['engnum'] 
+        # For engnum, only include 1 or 2 engines (exclude 4-engine aircraft)
+        if row['engnum'] in [1, 2]:
+            labels['engnum'] = row['engnum']
+        else:
+            labels['engnum'] = None  # Exclude 4-engine aircraft
         labels['fueltype'] = row['fueltype']
     else:
         # For non-aircraft, set other labels to None
@@ -193,17 +197,18 @@ le_engtype.fit(aircraft_df['engtype'])
 label_encoders['engtype'] = le_engtype
 class_weights['engtype'] = {0: 4.22, 1: 0.33, 2: 1.37, 3: 39.06}  # Pre-computed
 
-# engnum: 3 classes  
+# engnum: binary (1 or 2 engines, excluding 4-engine aircraft)
+engnum_filtered = aircraft_df[aircraft_df['engnum'].isin([1, 2])]
 le_engnum = LabelEncoder()
-le_engnum.fit(aircraft_df['engnum'])
+le_engnum.fit(engnum_filtered['engnum'])
 label_encoders['engnum'] = le_engnum
-class_weights['engnum'] = {0: 5.34, 1: 0.36, 2: 69.44}  # Pre-computed
+class_weights['engnum'] = {0: 5.34, 1: 0.36}  # Only for 1 and 2 engines
 
-# fueltype: 2 classes
+# fueltype: binary (Kerosene or Gasoline)
 le_fueltype = LabelEncoder()
 le_fueltype.fit(aircraft_df['fueltype'])
 label_encoders['fueltype'] = le_fueltype
-class_weights['fueltype'] = {0: 8.45, 1: 0.53}  # Pre-computed
+class_weights['fueltype'] = {0: 8.45, 1: 0.53}  # Binary classification
 
 # Split dataset - use all recordings
 train_df = df.loc[(df['fold'] == '1') | (df['fold'] == '2') | (df['fold'] == '3') | (df['fold'] == '4')]
@@ -233,13 +238,24 @@ def encode_labels(y_dict, encoders):
     aircraft_mask = y_dict['is_aircraft'] == 1
     
     for task in ['engtype', 'engnum', 'fueltype']:
-        task_labels = y_dict[task][aircraft_mask]
-        encoded_labels = encoders[task].transform(task_labels)
+        # Filter out None values for engnum (4-engine aircraft)
+        if task == 'engnum':
+            valid_mask = (y_dict[task] != None) & aircraft_mask
+            task_labels = y_dict[task][valid_mask]
+        else:
+            task_labels = y_dict[task][aircraft_mask]
+            valid_mask = aircraft_mask
         
-        # Create full array with -1 for non-aircraft (will be ignored in loss)
-        full_encoded = np.full(len(y_dict['is_aircraft']), -1, dtype=int)
-        full_encoded[aircraft_mask] = encoded_labels
-        encoded[task] = full_encoded
+        if len(task_labels) > 0:
+            encoded_labels = encoders[task].transform(task_labels)
+            
+            # Create full array with -1 for non-aircraft or invalid samples
+            full_encoded = np.full(len(y_dict['is_aircraft']), -1, dtype=int)
+            full_encoded[valid_mask] = encoded_labels
+            encoded[task] = full_encoded
+        else:
+            # If no valid labels, create array of all -1s
+            encoded[task] = np.full(len(y_dict['is_aircraft']), -1, dtype=int)
     
     return encoded
 
@@ -254,13 +270,12 @@ X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], X_test.shape[2], 1)
 
 print(f'X_train: {X_train.shape}')
 
-# Build multi-output model
-def build_multi_output_model(input_shape):
-    """Build multi-output CNN model for all 4 tasks"""
+# Build individual CNN model for single task
+def build_single_task_model(input_shape, task_name, num_classes, activation='sigmoid'):
+    """Build CNN model for a single classification task"""
     from tensorflow.keras.layers import Input
     from tensorflow.keras.models import Model
     
-    # Shared CNN backbone
     inputs = Input(shape=input_shape)
     
     x = Conv2D(32, (3, 3), activation='relu')(inputs)
@@ -283,13 +298,10 @@ def build_multi_output_model(input_shape):
     x = BatchNormalization()(x)
     x = Dropout(0.5)(x)
     
-    # Output heads for each task
-    is_aircraft_output = Dense(1, activation='sigmoid', name='is_aircraft')(x)
-    engtype_output = Dense(4, activation='softmax', name='engtype')(x)
-    engnum_output = Dense(3, activation='softmax', name='engnum')(x)
-    fueltype_output = Dense(2, activation='softmax', name='fueltype')(x)
+    # Output layer for the specific task
+    output = Dense(num_classes, activation=activation, name=task_name)(x)
     
-    model = Model(inputs=inputs, outputs=[is_aircraft_output, engtype_output, engnum_output, fueltype_output])
+    model = Model(inputs=inputs, outputs=output)
     
     return model
 
@@ -301,97 +313,138 @@ def masked_sparse_categorical_crossentropy(y_true, y_pred):
     loss = tf.keras.losses.sparse_categorical_crossentropy(y_true_masked, y_pred)
     return tf.reduce_sum(loss * mask) / tf.maximum(tf.reduce_sum(mask), 1.0)
 
-# Build model
+# Custom loss function for binary classification with masked labels
+def masked_binary_crossentropy(y_true, y_pred):
+    """Ignore samples with label -1 for binary classification"""
+    mask = tf.cast(tf.not_equal(y_true, -1), tf.float32)
+    y_true_masked = tf.maximum(y_true, 0)  # Replace -1 with 0 for calculation
+    y_true_masked = tf.cast(y_true_masked, tf.float32)
+    loss = tf.keras.losses.binary_crossentropy(y_true_masked, y_pred)
+    return tf.reduce_sum(loss * mask) / tf.maximum(tf.reduce_sum(mask), 1.0)
+
+# Train 4 separate models - binary models first, then engtype
 input_shape = X_train.shape[1:]
-model = build_multi_output_model(input_shape)
+models = {}
+histories = {}
 
-# Compile with different losses for each output
-model.compile(
-    optimizer='adam',
-    loss={
-        'is_aircraft': 'binary_crossentropy',
-        'engtype': masked_sparse_categorical_crossentropy,
-        'engnum': masked_sparse_categorical_crossentropy,
-        'fueltype': masked_sparse_categorical_crossentropy
+# Define model configurations - binary models first, engtype last
+model_configs = [
+    # Binary models first
+    {
+        'name': 'is_aircraft',
+        'num_classes': 1,
+        'activation': 'sigmoid',
+        'loss': 'binary_crossentropy',
+        'data_filter': None  # Use all data
     },
-    loss_weights={
-        'is_aircraft': 1.0,
-        'engtype': 1.0,
-        'engnum': 1.0,
-        'fueltype': 1.0
+    {
+        'name': 'engnum',
+        'num_classes': 1,
+        'activation': 'sigmoid',
+        'loss': masked_binary_crossentropy,
+        'data_filter': 'engnum_valid'  # Only 1 or 2 engine aircraft
     },
-    metrics={
-        'is_aircraft': ['accuracy'],
-        'engtype': ['accuracy'],
-        'engnum': ['accuracy'],
-        'fueltype': ['accuracy']
+    {
+        'name': 'fueltype',
+        'num_classes': 1,
+        'activation': 'sigmoid',
+        'loss': masked_binary_crossentropy,
+        'data_filter': 'aircraft_only'  # Only aircraft data
+    },
+    # Multi-class model last
+    {
+        'name': 'engtype',
+        'num_classes': 4,
+        'activation': 'softmax',
+        'loss': masked_sparse_categorical_crossentropy,
+        'data_filter': 'aircraft_only'  # Only aircraft data
     }
-)
+]
 
-model.summary()
-
-# Custom callback for cleaner logging
-class CleanTrainingCallback(tf.keras.callbacks.Callback):
-    def on_epoch_begin(self, epoch, logs=None):
-        print(f"Epoch {epoch+1}/30", end=" - ")
+# Train each model separately
+for config in model_configs:
+    task_name = config['name']
+    print(f"\n{'='*50}")
+    print(f"Training {task_name.upper()} model")
+    print(f"{'='*50}")
     
-    def on_epoch_end(self, epoch, logs=None):
-        # Print key metrics in one line
-        aircraft_acc = logs.get('val_is_aircraft_accuracy', 0)
-        engtype_acc = logs.get('val_engtype_accuracy', 0)
-        engnum_acc = logs.get('val_engnum_accuracy', 0)
-        fuel_acc = logs.get('val_fueltype_accuracy', 0)
+    # Build model for this task
+    model = build_single_task_model(
+        input_shape, 
+        task_name, 
+        config['num_classes'], 
+        config['activation']
+    )
+    
+    # Compile model
+    model.compile(
+        optimizer='adam',
+        loss=config['loss'],
+        metrics=['accuracy']
+    )
+    
+    print(f"\n{task_name.upper()} Model Architecture:")
+    model.summary()
+    
+    # Prepare data for this specific task
+    if config['data_filter'] == 'engnum_valid':
+        # For engnum, exclude samples with -1 (4-engine aircraft)
+        valid_mask_train = y_train[task_name] != -1
+        valid_mask_val = y_val[task_name] != -1
         
-        print(f"Aircraft: {aircraft_acc:.3f} | EngType: {engtype_acc:.3f} | EngNum: {engnum_acc:.3f} | Fuel: {fuel_acc:.3f}")
+        X_task_train = X_train[valid_mask_train]
+        y_task_train = y_train[task_name][valid_mask_train]
+        X_task_val = X_val[valid_mask_val] 
+        y_task_val = y_val[task_name][valid_mask_val]
+    elif config['data_filter'] == 'aircraft_only':
+        # For engtype and fueltype, use aircraft samples
+        valid_mask_train = y_train['is_aircraft'] == 1
+        valid_mask_val = y_val['is_aircraft'] == 1
+        
+        X_task_train = X_train[valid_mask_train]
+        y_task_train = y_train[task_name][valid_mask_train]
+        X_task_val = X_val[valid_mask_val] 
+        y_task_val = y_val[task_name][valid_mask_val]
+    else:
+        # Use all data (for is_aircraft)
+        X_task_train = X_train
+        y_task_train = y_train[task_name]
+        X_task_val = X_val
+        y_task_val = y_val[task_name]
+    
+    print(f"\nTraining data shape: {X_task_train.shape}")
+    print(f"Training labels shape: {y_task_train.shape}")
+    
+    # Train the model
+    print(f"\nTraining {task_name} model...")
+    history = model.fit(
+        X_task_train,
+        y_task_train,
+        validation_data=(X_task_val, y_task_val),
+        epochs=30,
+        batch_size=32,
+        callbacks=[
+            tf.keras.callbacks.EarlyStopping(patience=8, restore_best_weights=True, verbose=1),
+            tf.keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=4, verbose=1)
+        ],
+        verbose=1
+    )
+    
+    # Store model and history
+    models[task_name] = model
+    histories[task_name] = history
+    
+    print(f"\n{task_name.upper()} model training completed!")
 
-print("Training...")
-history = model.fit(
-    X_train, 
-    {
-        'is_aircraft': y_train['is_aircraft'],
-        'engtype': y_train['engtype'],
-        'engnum': y_train['engnum'],
-        'fueltype': y_train['fueltype']
-    },
-    validation_data=(
-        X_val,
-        {
-            'is_aircraft': y_val['is_aircraft'],
-            'engtype': y_val['engtype'],
-            'engnum': y_val['engnum'],
-            'fueltype': y_val['fueltype']
-        }
-    ),
-    epochs=30,
-    batch_size=32,
-    callbacks=[
-        CleanTrainingCallback(),
-        tf.keras.callbacks.EarlyStopping(patience=8, restore_best_weights=True, verbose=0),
-        tf.keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=4, verbose=0)
-    ],
-    verbose=0  # Disable default verbose output
-)
+print(f"\n{'='*60}")
+print("All 4 models trained successfully!")
+print(f"{'='*60}")
 
-# Import evaluation utilities
-from evaluation_utils import save_training_results, evaluate_model_performance
+# Evaluate all models and save results
+performance_results, all_predictions = evaluate_separate_models(models, X_test, y_test)
 
-# Evaluate on test set
-print("Evaluating model...")
-test_results = model.evaluate(
-    X_test,
-    {
-        'is_aircraft': y_test['is_aircraft'],
-        'engtype': y_test['engtype'],
-        'engnum': y_test['engnum'],
-        'fueltype': y_test['fueltype']
-    },
-    verbose=0
-)
+# Save all results using evaluation utilities
+save_separate_models_results(models, histories, label_encoders, X_train, X_val, X_test, 
+                            y_train, y_val, y_test, performance_results)
 
-# Evaluate model performance and save results
-performance_results = evaluate_model_performance(model, X_test, y_test)
-
-# Save all training results, processed data, and generate charts
-save_training_results(model, history, label_encoders, X_train, X_val, X_test, y_train, y_val, y_test)
-
-print("\nTraining completed! Single model predicts all 4 tasks.")
+print("\nTraining completed! 4 separate models trained for each task.")

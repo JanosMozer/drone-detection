@@ -5,25 +5,34 @@ import pickle
 import json
 import tensorflow as tf
 
-def save_training_results(model, history, label_encoders, X_train, X_val, X_test, 
-                         y_train, y_val, y_test, results_dir='results'):
-    """Save all training results, processed data, and generate charts"""
+# Single model training functions removed - only separate models functions remain
+
+def save_separate_models_results(models, histories, label_encoders, X_train, X_val, X_test, 
+                                y_train, y_val, y_test, performance_results, results_dir='results'):
+    """Save results for separate models training approach"""
     
     # Create results directory
     os.makedirs(results_dir, exist_ok=True)
     
-    # Save the model and encoders
-    model.save(os.path.join(results_dir, 'multi_output_aircraft_model.h5'))
-    print(f"\nModel saved as '{results_dir}/multi_output_aircraft_model.h5'")
+    # Save individual models
+    for task_name, model in models.items():
+        model.save(os.path.join(results_dir, f'{task_name}_model.h5'))
+        print(f"{task_name} model saved as '{results_dir}/{task_name}_model.h5'")
     
+    # Save label encoders
     with open(os.path.join(results_dir, 'label_encoders.pkl'), 'wb') as f:
         pickle.dump(label_encoders, f)
     print(f"Label encoders saved as '{results_dir}/label_encoders.pkl'")
     
-    # Save training history
-    with open(os.path.join(results_dir, 'training_history.pkl'), 'wb') as f:
-        pickle.dump(history.history, f)
-    print(f"Training history saved as '{results_dir}/training_history.pkl'")
+    # Save training histories
+    with open(os.path.join(results_dir, 'training_histories.pkl'), 'wb') as f:
+        pickle.dump({task: hist.history for task, hist in histories.items()}, f)
+    print(f"Training histories saved as '{results_dir}/training_histories.pkl'")
+    
+    # Save performance results
+    with open(os.path.join(results_dir, 'performance_results_separate_models.json'), 'w') as f:
+        json.dump(performance_results, f, indent=2)
+    print(f"Performance results saved as '{results_dir}/performance_results_separate_models.json'")
     
     # Save processed data
     np.save(os.path.join(results_dir, 'X_train.npy'), X_train)
@@ -38,120 +47,91 @@ def save_training_results(model, history, label_encoders, X_train, X_val, X_test
         pickle.dump(y_test, f)
     print(f"Processed data saved in '{results_dir}/'")
     
-    # Generate and save training charts
-    generate_training_charts(history, results_dir)
-    
-    # Save detailed results summary
-    save_results_summary(model, history, results_dir)
+    # Generate training charts for all models
+    generate_separate_models_charts(histories, results_dir)
     
     print(f"\nAll results saved in '{results_dir}/' directory!")
 
-def generate_training_charts(history, results_dir):
-    """Generate and save training charts"""
+def generate_separate_models_charts(histories, results_dir):
+    """Generate training charts for separate models"""
     
-    plt.figure(figsize=(15, 10))
-    
-    # Plot training history for each task
-    tasks = ['is_aircraft', 'engtype', 'engnum', 'fueltype']
-    metrics = ['loss', 'accuracy']
-    
-    for i, task in enumerate(tasks):
-        for j, metric in enumerate(metrics):
-            plt.subplot(4, 2, i*2 + j + 1)
-            
-            if metric == 'loss':
-                plt.plot(history.history[f'{task}_{metric}'], label=f'Training {metric}')
-                plt.plot(history.history[f'val_{task}_{metric}'], label=f'Validation {metric}')
-                plt.title(f'{task.replace("_", " ").title()} - {metric.title()}')
-                plt.ylabel(metric.title())
-            else:
-                plt.plot(history.history[f'{task}_{metric}'], label=f'Training {metric}')
-                plt.plot(history.history[f'val_{task}_{metric}'], label=f'Validation {metric}')
-                plt.title(f'{task.replace("_", " ").title()} - {metric.title()}')
-                plt.ylabel(metric.title())
-            
-            plt.xlabel('Epoch')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
+    plt.figure(figsize=(20, 15))
+    for i, (task_name, history) in enumerate(histories.items()):
+        # Loss plot
+        plt.subplot(4, 2, i*2 + 1)
+        plt.plot(history.history['loss'], label='Training Loss')
+        plt.plot(history.history['val_loss'], label='Validation Loss')
+        plt.title(f'{task_name.replace("_", " ").title()} - Loss')
+        plt.ylabel('Loss')
+        plt.xlabel('Epoch')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Accuracy plot
+        plt.subplot(4, 2, i*2 + 2)
+        plt.plot(history.history['accuracy'], label='Training Accuracy')
+        plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+        plt.title(f'{task_name.replace("_", " ").title()} - Accuracy')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Epoch')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(os.path.join(results_dir, 'training_charts.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(results_dir, 'training_charts_separate_models.png'), dpi=300, bbox_inches='tight')
     plt.show()
-    print(f"Training charts saved as '{results_dir}/training_charts.png'")
+    print(f"Training charts saved as '{results_dir}/training_charts_separate_models.png'")
 
-def save_results_summary(model, history, results_dir):
-    """Save detailed results summary"""
+def evaluate_separate_models(models, X_test, y_test):
+    """Evaluate all separate models on test set"""
     
-    # Get model summary as string
-    summary_list = []
-    model.summary(print_fn=lambda x: summary_list.append(x))
-    model_summary = '\n'.join(summary_list)
+    print(f"\n{'='*60}")
+    print("EVALUATING ALL MODELS ON TEST SET")
+    print(f"{'='*60}")
     
-    results_summary = {
-        'total_parameters': model.count_params(),
-        'training_epochs': len(history.history['loss']),
-        'final_training_loss': history.history['loss'][-1],
-        'final_validation_loss': history.history['val_loss'][-1],
-        'model_architecture': model_summary
-    }
+    all_predictions = {}
+    performance_results = {}
     
-    with open(os.path.join(results_dir, 'results_summary.json'), 'w') as f:
-        json.dump(results_summary, f, indent=2, default=str)
-    print(f"Results summary saved as '{results_dir}/results_summary.json'")
-
-def evaluate_model_performance(model, X_test, y_test, results_dir='results'):
-    """Evaluate model performance and save results"""
-    
-    # Get predictions
-    predictions = model.predict(X_test, verbose=0)
-    pred_is_aircraft = (predictions[0] > 0.5).astype(int).flatten()
-    pred_engtype = np.argmax(predictions[1], axis=1)
-    pred_engnum = np.argmax(predictions[2], axis=1)
-    pred_fueltype = np.argmax(predictions[3], axis=1)
-    
-    # Evaluate each task
-    print("\n=== RESULTS ===")
-    
-    # is_aircraft task
-    print("Aircraft Detection:")
-    aircraft_mask_test = y_test['is_aircraft'] == 1
-    acc_aircraft = (pred_is_aircraft == y_test['is_aircraft']).mean()
-    print(f"  Accuracy: {acc_aircraft:.4f}")
-    
-    # Initialize accuracy variables
-    acc_engtype = None
-    acc_engnum = None
-    acc_fueltype = None
-    
-    # engtype task (only for aircraft)
-    if aircraft_mask_test.sum() > 0:
-        engtype_true = y_test['engtype'][aircraft_mask_test]
-        engtype_pred = pred_engtype[aircraft_mask_test]
-        acc_engtype = (engtype_true == engtype_pred).mean()
-        print(f"Engine Type Accuracy: {acc_engtype:.4f}")
+    for task_name, model in models.items():
+        print(f"\nEvaluating {task_name.upper()} model...")
         
-        # engnum task (only for aircraft)
-        engnum_true = y_test['engnum'][aircraft_mask_test]
-        engnum_pred = pred_engnum[aircraft_mask_test]
-        acc_engnum = (engnum_true == engnum_pred).mean()
-        print(f"Engine Number Accuracy: {acc_engnum:.4f}")
+        # Prepare test data for this task
+        if task_name == 'is_aircraft':
+            X_task_test = X_test
+            y_task_test = y_test[task_name]
+        elif task_name == 'engnum':
+            # For engnum, exclude samples with -1 (4-engine aircraft)
+            valid_mask_test = y_test[task_name] != -1
+            X_task_test = X_test[valid_mask_test]
+            y_task_test = y_test[task_name][valid_mask_test]
+        else:
+            # For engtype and fueltype, use aircraft samples
+            valid_mask_test = y_test['is_aircraft'] == 1
+            X_task_test = X_test[valid_mask_test]
+            y_task_test = y_test[task_name][valid_mask_test]
         
-        # fueltype task (only for aircraft)
-        fueltype_true = y_test['fueltype'][aircraft_mask_test]
-        fueltype_pred = pred_fueltype[aircraft_mask_test]
-        acc_fueltype = (fueltype_true == fueltype_pred).mean()
-        print(f"Fuel Type Accuracy: {acc_fueltype:.4f}")
+        # Evaluate model
+        test_loss, test_acc = model.evaluate(X_task_test, y_task_test, verbose=0)
+        print(f"{task_name.upper()} - Test Loss: {test_loss:.4f}, Test Accuracy: {test_acc:.4f}")
+        
+        # Get predictions
+        predictions = model.predict(X_task_test, verbose=0)
+        
+        if task_name == 'engtype':
+            pred_labels = np.argmax(predictions, axis=1)
+        else:
+            pred_labels = (predictions > 0.5).astype(int).flatten()
+        
+        all_predictions[task_name] = pred_labels
+        performance_results[task_name] = {
+            'test_loss': float(test_loss),
+            'test_accuracy': float(test_acc)
+        }
     
-    # Save performance results
-    performance_results = {
-        'test_accuracy_aircraft': float(acc_aircraft),
-        'test_accuracy_engtype': float(acc_engtype) if acc_engtype is not None else None,
-        'test_accuracy_engnum': float(acc_engnum) if acc_engnum is not None else None,
-        'test_accuracy_fueltype': float(acc_fueltype) if acc_fueltype is not None else None
-    }
+    print(f"\n{'='*60}")
+    print("FINAL RESULTS SUMMARY")
+    print(f"{'='*60}")
+    for task_name, results in performance_results.items():
+        print(f"{task_name.upper():12} - Accuracy: {results['test_accuracy']:.4f}")
     
-    with open(os.path.join(results_dir, 'performance_results.json'), 'w') as f:
-        json.dump(performance_results, f, indent=2)
-    print(f"Performance results saved as '{results_dir}/performance_results.json'")
-    
-    return performance_results
+    return performance_results, all_predictions
