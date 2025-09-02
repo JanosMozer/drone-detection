@@ -108,6 +108,30 @@ Model 4: Fuel Type
 Input: Spectrogram (128, 107, 1) → CNN → Dense → softmax (2 outputs)
 ```
 
+## Results and Outputs
+
+After training, all results are automatically saved in the `results/` directory:
+
+### **Training Outputs**
+- **Model Files**: Trained model weights and label encoders
+- **Training History**: Complete training metrics for all epochs
+- **Processed Data**: Preprocessed spectrograms and encoded labels
+- **Visualizations**: Training charts showing loss and accuracy curves
+- **Performance Summary**: JSON file with final test accuracies and model stats
+
+### **Training Charts**
+The `training_charts.png` file contains 8 subplots showing:
+- **Loss curves** for each task (training vs validation)
+- **Accuracy curves** for each task (training vs validation)
+- **Tasks**: Aircraft Detection, Engine Type, Engine Number, Fuel Type
+
+### **Data Persistence**
+All preprocessed data is saved for:
+- **Reproducibility**: Exact same training conditions
+- **Analysis**: Post-training performance investigation
+- **Transfer Learning**: Reuse processed data for new models
+- **Debugging**: Investigate model behavior on specific samples
+
 ## Technical Implementation
 
 ### Audio Processing Pipeline
@@ -145,6 +169,18 @@ drone-detection/
 ├── model_comparison.md        # Detailed architecture comparison
 ├── README.md                 # This file
 ├── requirements.txt          # Python dependencies
-└── venv/                    # Virtual environment
+├── venv/                    # Virtual environment
+└── results/                  # Training results and outputs
+    ├── multi_output_aircraft_model.h5  # Trained model
+    ├── label_encoders.pkl              # Label encoders
+    ├── training_history.pkl            # Training metrics
+    ├── training_charts.png             # Training visualization
+    ├── results_summary.json            # Performance summary
+    ├── X_train.npy                    # Processed training data
+    ├── X_val.npy                      # Processed validation data
+    ├── X_test.npy                     # Processed test data
+    ├── y_train.pkl                    # Training labels
+    ├── y_val.pkl                      # Validation labels
+    └── y_test.pkl                     # Test labels
 ```
 

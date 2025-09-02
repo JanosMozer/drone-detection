@@ -372,6 +372,9 @@ history = model.fit(
     verbose=0  # Disable default verbose output
 )
 
+# Import evaluation utilities
+from evaluation_utils import save_training_results, evaluate_model_performance
+
 # Evaluate on test set
 print("Evaluating model...")
 test_results = model.evaluate(
@@ -385,48 +388,10 @@ test_results = model.evaluate(
     verbose=0
 )
 
-# Get predictions
-predictions = model.predict(X_test, verbose=0)
-pred_is_aircraft = (predictions[0] > 0.5).astype(int).flatten()
-pred_engtype = np.argmax(predictions[1], axis=1)
-pred_engnum = np.argmax(predictions[2], axis=1)
-pred_fueltype = np.argmax(predictions[3], axis=1)
+# Evaluate model performance and save results
+performance_results = evaluate_model_performance(model, X_test, y_test)
 
-# Evaluate each task
-print("\n=== RESULTS ===")
-
-# is_aircraft task
-print("Aircraft Detection:")
-aircraft_mask_test = y_test['is_aircraft'] == 1
-acc_aircraft = (pred_is_aircraft == y_test['is_aircraft']).mean()
-print(f"  Accuracy: {acc_aircraft:.4f}")
-
-# engtype task (only for aircraft)
-if aircraft_mask_test.sum() > 0:
-    engtype_true = y_test['engtype'][aircraft_mask_test]
-    engtype_pred = pred_engtype[aircraft_mask_test]
-    acc_engtype = (engtype_true == engtype_pred).mean()
-    print(f"Engine Type Accuracy: {acc_engtype:.4f}")
-    
-    # engnum task (only for aircraft)
-    engnum_true = y_test['engnum'][aircraft_mask_test]
-    engnum_pred = pred_engnum[aircraft_mask_test]
-    acc_engnum = (engnum_true == engnum_pred).mean()
-    print(f"Engine Number Accuracy: {acc_engnum:.4f}")
-    
-    # fueltype task (only for aircraft)
-    fueltype_true = y_test['fueltype'][aircraft_mask_test]
-    fueltype_pred = pred_fueltype[aircraft_mask_test]
-    acc_fueltype = (fueltype_true == fueltype_pred).mean()
-    print(f"Fuel Type Accuracy: {acc_fueltype:.4f}")
-
-# Save the model and encoders
-model.save('multi_output_aircraft_model.h5')
-print("\nModel saved as 'multi_output_aircraft_model.h5'")
-
-import pickle
-with open('label_encoders.pkl', 'wb') as f:
-    pickle.dump(label_encoders, f)
-print("Label encoders saved as 'label_encoders.pkl'")
+# Save all training results, processed data, and generate charts
+save_training_results(model, history, label_encoders, X_train, X_val, X_test, y_train, y_val, y_test)
 
 print("\nTraining completed! Single model predicts all 4 tasks.")
