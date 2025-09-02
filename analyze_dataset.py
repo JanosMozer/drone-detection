@@ -104,6 +104,68 @@ def analyze_dataset():
     
     return df, aircraft_df, complete_aircraft
 
+def analyze_missing_data(df):
+    """Analyze missing data patterns in detail"""
+    
+    print("=== DETAILED MISSING DATA ANALYSIS ===")
+    
+    # Target columns for analysis
+    target_cols = ['engtype', 'engnum', 'model', 'engmodel', 'fueltype']
+    
+    # Calculate missing data statistics
+    missing_stats = {}
+    for col in target_cols:
+        if col in df.columns:
+            missing_count = df[col].isnull().sum()
+            total_count = len(df)
+            missing_percentage = (missing_count / total_count) * 100
+            missing_stats[col] = {
+                'missing_count': missing_count,
+                'total_count': total_count,
+                'missing_percentage': missing_percentage,
+                'present_count': total_count - missing_count
+            }
+    
+    # Print detailed statistics
+    for col, stats in missing_stats.items():
+        print(f"\n{col.upper()}:")
+        print(f"  Missing: {stats['missing_count']}/{stats['total_count']} ({stats['missing_percentage']:.1f}%)")
+        print(f"  Present: {stats['present_count']}/{stats['total_count']} ({100 - stats['missing_percentage']:.1f}%)")
+    
+    # Analyze missing data patterns
+    print(f"\n=== MISSING DATA PATTERNS ===")
+    
+    # Check if missing data is related to class
+    if 'class' in df.columns:
+        print(f"\nMissing data by class:")
+        for col in target_cols:
+            if col in df.columns:
+                missing_by_class = df.groupby('class')[col].apply(lambda x: x.isnull().sum())
+                total_by_class = df.groupby('class').size()
+                print(f"\n{col}:")
+                for class_val, missing_count in missing_by_class.items():
+                    total_in_class = total_by_class[class_val]
+                    percentage = (missing_count / total_in_class) * 100
+                    class_label = "Aircraft" if class_val == 1 else "No Aircraft"
+                    print(f"  {class_label} (class={class_val}): {missing_count}/{total_in_class} ({percentage:.1f}%)")
+    
+    # Check for complete vs incomplete records
+    complete_records = df.dropna(subset=target_cols)
+    incomplete_records = df[df[target_cols].isnull().any(axis=1)]
+    
+    print(f"\n=== RECORD COMPLETENESS ===")
+    print(f"Complete records: {len(complete_records)} ({len(complete_records)/len(df)*100:.1f}%)")
+    print(f"Incomplete records: {len(incomplete_records)} ({len(incomplete_records)/len(df)*100:.1f}%)")
+    
+    # Analyze which columns are most commonly missing together
+    print(f"\n=== MISSING DATA COMBINATIONS ===")
+    missing_combinations = df[target_cols].isnull().sum(axis=1).value_counts().sort_index()
+    for missing_count, record_count in missing_combinations.items():
+        percentage = (record_count / len(df)) * 100
+        print(f"Records missing {missing_count} columns: {record_count} ({percentage:.1f}%)")
+    
+    return missing_stats
+
 def create_visualizations(df, aircraft_df, complete_aircraft):
     """Create visualizations for the dataset analysis"""
     
@@ -144,10 +206,54 @@ def create_visualizations(df, aircraft_df, complete_aircraft):
         axes[1, 1].set_yticklabels(model_counts.index)
         axes[1, 1].set_title('Top 10 Aircraft Models')
     
-    # 6. Missing data heatmap
-    missing_data = df[['class', 'engtype', 'engnum', 'model', 'engmodel', 'fueltype']].isnull()
-    sns.heatmap(missing_data, cbar=True, ax=axes[1, 2])
-    axes[1, 2].set_title('Missing Data Pattern')
+    # 6. Missing data heatmap - improved version
+    # Only show target columns for missing data analysis (exclude 'class' as it's the target)
+    target_cols_for_missing = ['engtype', 'engnum', 'model', 'engmodel', 'fueltype']
+    missing_data = df[target_cols_for_missing].isnull()
+    
+    # Create a better missing data visualization
+    if missing_data.sum().sum() > 0:  # Only create heatmap if there are missing values
+        # Sample the data if too many rows to avoid overwhelming visualization
+        if len(missing_data) > 1000:
+            # Take a random sample of 1000 rows for better visualization
+            sample_indices = np.random.choice(len(missing_data), 1000, replace=False)
+            missing_data_sample = missing_data.iloc[sample_indices]
+            title_suffix = " (1000 random samples)"
+        else:
+            missing_data_sample = missing_data
+            title_suffix = ""
+        
+        sns.heatmap(missing_data_sample, 
+                    cbar=True, 
+                    ax=axes[1, 2],
+                    cmap='viridis',
+                    yticklabels=False)  # Hide y-axis labels for cleaner look
+        axes[1, 2].set_title(f'Missing Data Pattern{title_suffix}')
+        axes[1, 2].set_xlabel('Features')
+        axes[1, 2].set_ylabel('Samples')
+        
+        # Add missing data summary as text
+        missing_summary = missing_data.sum()
+        total_samples = len(missing_data)
+        summary_text = f"Missing values:\n"
+        for col, missing_count in missing_summary.items():
+            percentage = (missing_count / total_samples) * 100
+            summary_text += f"{col}: {missing_count}/{total_samples} ({percentage:.1f}%)\n"
+        
+        # Add text box with summary
+        axes[1, 2].text(0.02, 0.98, summary_text, 
+                        transform=axes[1, 2].transAxes, 
+                        verticalalignment='top',
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+                        fontsize=8)
+    else:
+        # If no missing data, show a message
+        axes[1, 2].text(0.5, 0.5, 'No Missing Data\nin Target Columns', 
+                        ha='center', va='center', transform=axes[1, 2].transAxes,
+                        fontsize=14, fontweight='bold')
+        axes[1, 2].set_title('Missing Data Pattern')
+        axes[1, 2].set_xticks([])
+        axes[1, 2].set_ylabel([])
     
     plt.tight_layout()
     plt.savefig('dataset_analysis.png', dpi=300, bbox_inches='tight')
@@ -156,6 +262,9 @@ def create_visualizations(df, aircraft_df, complete_aircraft):
 if __name__ == "__main__":
     # Run the analysis
     df, aircraft_df, complete_aircraft = analyze_dataset()
+    
+    # Run detailed missing data analysis
+    missing_stats = analyze_missing_data(df)
     
     # Create visualizations
     create_visualizations(df, aircraft_df, complete_aircraft)
