@@ -72,9 +72,7 @@ Input: Audio Spectrogram (128, 107, 1)
 │  Conv2D(32) → BatchNorm → MaxPool   │
 │  Conv2D(64) → BatchNorm → MaxPool   │
 │  Conv2D(128) → BatchNorm → MaxPool  │
-│  Conv2D(256) → BatchNorm → MaxPool  │ ← GPU version
-│  Flatten → Dense(512) → Dropout     │ ← GPU version  
-│  Dense(256) → Dropout               │
+│  Flatten → Dense(256) → Dropout     │
 └─────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────┐

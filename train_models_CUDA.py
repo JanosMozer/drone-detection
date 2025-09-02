@@ -327,16 +327,7 @@ def build_single_task_model(input_shape, task_name, num_classes, activation='sig
         x = MaxPooling2D((2, 2))(x)
         x = Dropout(0.25)(x)
         
-        x = Conv2D(256, (3, 3), activation='relu', padding='same')(x)
-        x = BatchNormalization()(x)
-        x = MaxPooling2D((2, 2))(x)
-        x = Dropout(0.25)(x)
-        
         x = Flatten()(x)
-        x = Dense(512, activation='relu')(x)
-        x = BatchNormalization()(x)
-        x = Dropout(0.5)(x)
-        
         x = Dense(256, activation='relu')(x)
         x = BatchNormalization()(x)
         x = Dropout(0.5)(x)
