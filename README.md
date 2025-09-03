@@ -10,7 +10,7 @@ This project implements aircraft classification from audio recordings using **fo
 - **Aircraft Detection** (Binary: aircraft vs no aircraft)
 - **Engine Type** (4 classes: Turbofan, Turboprop, Piston, Turboshaft)
 - **Engine Number** (Binary: 1 or 2 engines, excluding 4-engine aircraft)
-- **Fuel Type** (Binary: Kerosene or Gasoline) 
+- **Fuel Type** (Binary: Kerosene or Gasoline)
 
 ### Training Approach
 **Multiple Separate Models** - Four independent CNN models, each specialized for one classification task, trained in sequence: binary models first, then multi-class models. Available in both CPU (`train_model.py`) and GPU-optimized (`train_models_CUDA.py`) versions.
