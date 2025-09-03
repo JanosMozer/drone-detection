@@ -102,14 +102,61 @@ Models are trained in a specific order to optimize training efficiency:
 2. **Multi-class Model Last**:
    - Engine Type (aircraft only, most complex)
 
-### GPU Optimization Features
+## Installation and Setup
 
-The `train_models_CUDA.py` version includes:
-- **Mixed Precision Training** (FP16/FP32) for 2× speed improvement
-- **Optimized Batch Sizes** (64 vs 32 for CPU)
-- **tf.data Pipeline** with prefetching for efficient GPU utilization
-- **Memory Growth** to prevent OOM errors
-- **Enhanced Architecture** with additional layers for better GPU utilization
+### Prerequisites
+- Ubuntu 20.04+ with NVIDIA GPU
+- Python 3.8+
+- NVIDIA driver installed
+
+### Quick Setup
+
+
+1. **GPU Setup (if you have NVIDIA GPU):**
+   ```bash
+   # Install NVIDIA driver
+   sudo apt update
+   sudo apt install nvidia-driver-535
+   
+   # Install TensorFlow with bundled CUDA
+   pip install tensorflow[and-cuda]
+   
+   # If system CUDA 13.0 is installed, temporarily disable it
+   sudo mv /usr/local/cuda-13.0 /usr/local/cuda-13.0.backup
+   
+   # Reboot system
+   sudo reboot
+   ```
+
+2. **Download dataset:**
+   ```bash
+   python get_data.py
+   ```
+
+3. **Run training:**
+   ```bash
+   # For GPU training
+   python train_models_CUDA.py
+   
+   # For CPU training
+   python train_model.py
+   ```
+
+### CUDA Setup Requirements
+
+**Important**: This project uses TensorFlow's bundled CUDA libraries rather than system CUDA installation. 
+
+**For Ubuntu with NVIDIA GPUs:**
+1. Install NVIDIA driver: `sudo apt install nvidia-driver-535`
+2. Install TensorFlow with bundled CUDA: `pip install tensorflow[and-cuda]`
+3. **If you have system CUDA installed** (CUDA 13.0 conflicts with TensorFlow 2.20.0):
+   ```bash
+   # Temporarily disable system CUDA to avoid conflicts
+   sudo mv /usr/local/cuda-13.0 /usr/local/cuda-13.0.backup
+   ```
+4. Reboot and run training script
+
+**Compatibility**: TensorFlow 2.20.0 expects CUDA 12.5.1, but system CUDA 13.0 causes `CUDA_ERROR_INVALID_HANDLE` errors. Using TensorFlow's bundled CUDA avoids version conflicts.
 
 ## Results and Outputs
 

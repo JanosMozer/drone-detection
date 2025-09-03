@@ -1,4 +1,4 @@
-# import required libraries
+import tensorflow as tf
 import os
 import math
 import random
@@ -8,7 +8,6 @@ import IPython.display as ipd
 import librosa
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, MaxPooling2D, Dropout, BatchNormalization, SpatialDropout2D
 from tensorflow.keras import regularizers
@@ -20,15 +19,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 from evaluation_utils import save_separate_models_results, evaluate_separate_models
 
-# Configure TensorFlow for CUDA GPU usage
 tf.get_logger().setLevel('ERROR')
 
-# Check GPU availability and configure memory growth
 print("Checking GPU availability...")
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
-        # Enable memory growth for each GPU
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
         
@@ -36,39 +32,27 @@ if gpus:
         for i, gpu in enumerate(gpus):
             print(f"  GPU {i}: {gpu}")
         
-        # Set GPU as preferred device
-        tf.config.experimental.set_visible_devices(gpus[0], 'GPU')
-        print(f"Using GPU: {gpus[0]}")
-        
     except RuntimeError as e:
         print(f"GPU configuration error: {e}")
 else:
     print("No GPU found. Training will use CPU.")
 
-# Enable mixed precision training for better GPU performance
-policy = tf.keras.mixed_precision.Policy('mixed_float16')
-tf.keras.mixed_precision.set_global_policy(policy)
-print(f"Mixed precision policy: {policy.name}")
-
-# Print device placement for debugging
 tf.debugging.set_log_device_placement(False)
 
 # Load the dataset
 df = pd.read_csv('dataset/sample_meta.csv')
 print(f"Dataset loaded: {len(df)} samples")
 
-# Define audio directory
 AUDIO_DIR = 'dataset/audio/audio'
 
-# Multi-class classification setup - we'll train 4 models
+# Multi-class classification setup
 TARGET_COLUMNS = {
-    'is_aircraft': 'class',  # Binary: aircraft vs no aircraft
-    'engtype': 'engtype',    # 4 classes: Turbofan, Turboprop, Piston, Turboshaft
-    'engnum': 'engnum',      # Binary: 1 or 2 engines (excluding 4-engine aircraft)
-    'fueltype': 'fueltype'   # Binary: Kerosene or Gasoline
+    'is_aircraft': 'class',
+    'engtype': 'engtype',
+    'engnum': 'engnum',
+    'fueltype': 'fueltype'
 }
 
-# Multiple separate models setup - train 4 independent models
 print("Training 4 separate models, one for each task")
 
 def get_audio_path_and_labels(df, filename):
@@ -78,25 +62,19 @@ def get_audio_path_and_labels(df, filename):
         return None, None
     
     row = row.iloc[0]
-    
-    # Get file path based on aircraft class
     filepath = os.path.join(AUDIO_DIR, str(row['class']), filename)
     
-    # Get all target labels
     labels = {}
     labels['is_aircraft'] = row['class']
     
-    # For aircraft recordings, get additional labels
     if row['class'] == 1:
         labels['engtype'] = row['engtype']
-        # For engnum, only include 1 or 2 engines (exclude 4-engine aircraft)
         if row['engnum'] in [1, 2]:
             labels['engnum'] = row['engnum']
         else:
-            labels['engnum'] = None  # Exclude 4-engine aircraft
+            labels['engnum'] = None
         labels['fueltype'] = row['fueltype']
     else:
-        # For non-aircraft, set other labels to None
         labels['engtype'] = None
         labels['engnum'] = None
         labels['fueltype'] = None
@@ -114,38 +92,32 @@ def load_show_audio(filename):
     plt.show()
     return ipd.Audio(path)
 
-# set some constants for feature extraction, training and inference
-SR = 22050 # sample rate of the audio files
-DURATION = 5 # length of a segment in seconds
-SAMPLES_PER_SEGMENT = SR*DURATION # the number of samples per segment we expect
-N_FFT = 2048 # approx frequency resolution of 21.5 Hz
+SR = 22050
+DURATION = 5
+SAMPLES_PER_SEGMENT = SR*DURATION
+N_FFT = 2048
 HOP_LENGTH = 1024 
 EXP_VECTORS_PER_SEGMENT = math.floor(SAMPLES_PER_SEGMENT/HOP_LENGTH)
-N_MELS = 128 # the number of frequency bins for spectrogram
-EXP_INPUT_SHAPE = (N_MELS, EXP_VECTORS_PER_SEGMENT) # the expected shape of the spectrogram
+N_MELS = 128
+EXP_INPUT_SHAPE = (N_MELS, EXP_VECTORS_PER_SEGMENT)
 print('Expected spectrogram shape:', EXP_INPUT_SHAPE)
 
 # function to load a file and chop it into spectrograms equal to the segment length
 def audio_to_spectrogram(filename):
     path, labels = get_audio_path_and_labels(df, filename)
     
-    # Skip if this is not a valid file
     if path is None or labels is None:
         return [], {}
     
     signal, sr = librosa.load(path)
 
-    
     if sr != SR:
         raise ValueError('Sample rate mismatch between audio and target')
         
     clip_segments = math.ceil(len(signal) / SAMPLES_PER_SEGMENT)
-    
-    # empty list to hold the spectrograms for this clip
     specs = []
     
     for segment in range(clip_segments):
-        
         start = SAMPLES_PER_SEGMENT * segment
         end = start + SAMPLES_PER_SEGMENT - HOP_LENGTH
         
@@ -159,8 +131,6 @@ def audio_to_spectrogram(filename):
         
         if db_spec.shape[1] == EXP_VECTORS_PER_SEGMENT:
             specs.append(db_spec)
-        
-        # if the clip is shorter than the segment, add zero padding to the right
         elif db_spec.shape[1] < EXP_VECTORS_PER_SEGMENT:
             n_short = EXP_VECTORS_PER_SEGMENT - db_spec.shape[1]
             db_spec = np.pad(db_spec, [(0, 0), (0, n_short)], 'constant')
@@ -168,18 +138,13 @@ def audio_to_spectrogram(filename):
         
     return specs, labels
 
-    # function to apply min-max scaling to squeeze spectrogram values between 0 and 1
 def normalise_array(array):
     array = np.asarray(array)
     min_val = array.min()
     max_val = array.max()
-    
     norm_array = (array - min_val) / (max_val - min_val)
-    
     return norm_array
 
-    # wrapper function to take a list of files and extract their features 
-# -> array of features (X) and dictionary of corresponding labels (y_dict)
 def preprocess(file_list):
     data = {
         'feature': [],
@@ -192,7 +157,6 @@ def preprocess(file_list):
     for file in file_list:
         specs, labels = audio_to_spectrogram(filename=file)
         
-        # Skip files that couldn't be processed
         if len(specs) == 0:
             continue
         
@@ -218,30 +182,26 @@ def preprocess(file_list):
 label_encoders = {}
 class_weights = {}
 
-# is_aircraft: binary, no encoding needed
-class_weights['is_aircraft'] = {0: 1.0, 1: 2.03}  # Balanced weights
+class_weights['is_aircraft'] = {0: 1.0, 1: 2.03}
 
-# engtype: 4 classes
 aircraft_df = df[df['class'] == 1]
 le_engtype = LabelEncoder()
 le_engtype.fit(aircraft_df['engtype'])
 label_encoders['engtype'] = le_engtype
-class_weights['engtype'] = {0: 4.22, 1: 0.33, 2: 1.37, 3: 39.06}  # Pre-computed
+class_weights['engtype'] = {0: 4.22, 1: 0.33, 2: 1.37, 3: 39.06}
 
-# engnum: binary (1 or 2 engines, excluding 4-engine aircraft)
 engnum_filtered = aircraft_df[aircraft_df['engnum'].isin([1, 2])]
 le_engnum = LabelEncoder()
 le_engnum.fit(engnum_filtered['engnum'])
 label_encoders['engnum'] = le_engnum
-class_weights['engnum'] = {0: 5.34, 1: 0.36}  # Only for 1 and 2 engines
+class_weights['engnum'] = {0: 5.34, 1: 0.36}
 
-# fueltype: binary (Kerosene or Gasoline)
 le_fueltype = LabelEncoder()
 le_fueltype.fit(aircraft_df['fueltype'])
 label_encoders['fueltype'] = le_fueltype
-class_weights['fueltype'] = {0: 8.45, 1: 0.53}  # Binary classification
+class_weights['fueltype'] = {0: 8.45, 1: 0.53}
 
-# Split dataset - use all recordings
+# Split dataset
 train_df = df.loc[(df['fold'] == '1') | (df['fold'] == '2') | (df['fold'] == '3') | (df['fold'] == '4')]
 val_df = df.loc[df['fold'] == '5']
 test_df = df.loc[df['fold'] == 'test']
@@ -258,18 +218,13 @@ X_train, y_train_dict = preprocess(train)
 X_val, y_val_dict = preprocess(val)
 X_test, y_test_dict = preprocess(test)
 
-# Encode labels for multi-class tasks
 def encode_labels(y_dict, encoders):
     encoded = {}
-    
-    # is_aircraft: no encoding needed
     encoded['is_aircraft'] = y_dict['is_aircraft']
     
-    # For other tasks, only encode aircraft recordings
     aircraft_mask = y_dict['is_aircraft'] == 1
     
     for task in ['engtype', 'engnum', 'fueltype']:
-        # Filter out None values for engnum (4-engine aircraft)
         if task == 'engnum':
             valid_mask = (y_dict[task] != None) & aircraft_mask
             task_labels = y_dict[task][valid_mask]
@@ -279,13 +234,10 @@ def encode_labels(y_dict, encoders):
         
         if len(task_labels) > 0:
             encoded_labels = encoders[task].transform(task_labels)
-            
-            # Create full array with -1 for non-aircraft or invalid samples
             full_encoded = np.full(len(y_dict['is_aircraft']), -1, dtype=int)
             full_encoded[valid_mask] = encoded_labels
             encoded[task] = full_encoded
         else:
-            # If no valid labels, create array of all -1s
             encoded[task] = np.full(len(y_dict['is_aircraft']), -1, dtype=int)
     
     return encoded
@@ -294,24 +246,20 @@ y_train = encode_labels(y_train_dict, label_encoders)
 y_val = encode_labels(y_val_dict, label_encoders)
 y_test = encode_labels(y_test_dict, label_encoders)
 
-# Add channel dimension for CNN
 X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], X_train.shape[2], 1)
 X_val = X_val.reshape(X_val.shape[0], X_val.shape[1], X_val.shape[2], 1)
 X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], X_test.shape[2], 1)
 
 print(f'X_train: {X_train.shape}')
 
-# Build individual CNN model for single task (GPU-optimized)
 def build_single_task_model(input_shape, task_name, num_classes, activation='sigmoid'):
     """Build CNN model for a single classification task optimized for GPU"""
     from tensorflow.keras.layers import Input
     from tensorflow.keras.models import Model
     
-    # Ensure model is built on GPU
     with tf.device('/GPU:0' if tf.config.list_physical_devices('GPU') else '/CPU:0'):
         inputs = Input(shape=input_shape, dtype=tf.float32)
         
-        # Convolutional layers with GPU-optimized settings
         x = Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
         x = BatchNormalization()(x)
         x = MaxPooling2D((2, 2))(x)
@@ -332,7 +280,6 @@ def build_single_task_model(input_shape, task_name, num_classes, activation='sig
         x = BatchNormalization()(x)
         x = Dropout(0.5)(x)
         
-        # Output layer with float32 for mixed precision compatibility
         if activation == 'sigmoid':
             output = Dense(num_classes, activation='linear', name=task_name, dtype=tf.float32)(x)
             output = tf.keras.activations.sigmoid(output)
@@ -344,59 +291,54 @@ def build_single_task_model(input_shape, task_name, num_classes, activation='sig
     
     return model
 
-# Custom loss function to ignore non-aircraft samples for multi-class tasks
 def masked_sparse_categorical_crossentropy(y_true, y_pred):
     """Ignore samples with label -1"""
     mask = tf.cast(tf.not_equal(y_true, -1), tf.float32)
-    y_true_masked = tf.maximum(y_true, 0)  # Replace -1 with 0 for calculation
+    y_true_masked = tf.maximum(y_true, 0)
     loss = tf.keras.losses.sparse_categorical_crossentropy(y_true_masked, y_pred)
     return tf.reduce_sum(loss * mask) / tf.maximum(tf.reduce_sum(mask), 1.0)
 
-# Custom loss function for binary classification with masked labels
 def masked_binary_crossentropy(y_true, y_pred):
     """Ignore samples with label -1 for binary classification"""
     mask = tf.cast(tf.not_equal(y_true, -1), tf.float32)
-    y_true_masked = tf.maximum(y_true, 0)  # Replace -1 with 0 for calculation
+    y_true_masked = tf.maximum(y_true, 0)
     y_true_masked = tf.cast(y_true_masked, tf.float32)
     loss = tf.keras.losses.binary_crossentropy(y_true_masked, y_pred)
     return tf.reduce_sum(loss * mask) / tf.maximum(tf.reduce_sum(mask), 1.0)
 
-# Train 4 separate models - binary models first, then engtype
+# Train 4 separate models
 input_shape = X_train.shape[1:]
 models = {}
 histories = {}
 
-# Define model configurations - binary models first, engtype last
 model_configs = [
-    # Binary models first
     {
         'name': 'is_aircraft',
         'num_classes': 1,
         'activation': 'sigmoid',
         'loss': 'binary_crossentropy',
-        'data_filter': None  # Use all data
+        'data_filter': None
     },
     {
         'name': 'engnum',
         'num_classes': 1,
         'activation': 'sigmoid',
         'loss': masked_binary_crossentropy,
-        'data_filter': 'engnum_valid'  # Only 1 or 2 engine aircraft
+        'data_filter': 'engnum_valid'
     },
     {
         'name': 'fueltype',
         'num_classes': 1,
         'activation': 'sigmoid',
         'loss': masked_binary_crossentropy,
-        'data_filter': 'aircraft_only'  # Only aircraft data
+        'data_filter': 'aircraft_only'
     },
-    # Multi-class model last
     {
         'name': 'engtype',
         'num_classes': 4,
         'activation': 'softmax',
         'loss': masked_sparse_categorical_crossentropy,
-        'data_filter': 'aircraft_only'  # Only aircraft data
+        'data_filter': 'aircraft_only'
     }
 ]
 
@@ -407,7 +349,6 @@ for config in model_configs:
     print(f"Training {task_name.upper()} model")
     print(f"{'='*50}")
     
-    # Build model for this task
     model = build_single_task_model(
         input_shape, 
         task_name, 
@@ -415,28 +356,25 @@ for config in model_configs:
         config['activation']
     )
     
-    # Compile model with GPU-optimized settings
     optimizer = tf.keras.optimizers.Adam(
         learning_rate=0.001,
         beta_1=0.9,
         beta_2=0.999,
         epsilon=1e-7,
-        clipnorm=1.0  # Gradient clipping for stability with mixed precision
+        clipnorm=1.0
     )
     
     model.compile(
         optimizer=optimizer,
         loss=config['loss'],
         metrics=['accuracy'],
-        run_eagerly=False  # Ensure graph mode for better GPU performance
+        run_eagerly=False
     )
     
     print(f"\n{task_name.upper()} Model Architecture:")
     model.summary()
     
-    # Prepare data for this specific task
     if config['data_filter'] == 'engnum_valid':
-        # For engnum, exclude samples with -1 (4-engine aircraft)
         valid_mask_train = y_train[task_name] != -1
         valid_mask_val = y_val[task_name] != -1
         
@@ -445,7 +383,6 @@ for config in model_configs:
         X_task_val = X_val[valid_mask_val] 
         y_task_val = y_val[task_name][valid_mask_val]
     elif config['data_filter'] == 'aircraft_only':
-        # For engtype and fueltype, use aircraft samples
         valid_mask_train = y_train['is_aircraft'] == 1
         valid_mask_val = y_val['is_aircraft'] == 1
         
@@ -454,7 +391,6 @@ for config in model_configs:
         X_task_val = X_val[valid_mask_val] 
         y_task_val = y_val[task_name][valid_mask_val]
     else:
-        # Use all data (for is_aircraft)
         X_task_train = X_train
         y_task_train = y_train[task_name]
         X_task_val = X_val
@@ -463,13 +399,10 @@ for config in model_configs:
     print(f"\nTraining data shape: {X_task_train.shape}")
     print(f"Training labels shape: {y_task_train.shape}")
     
-    # Train the model with GPU-optimized settings
     print(f"\nTraining {task_name} model on GPU...")
     
-    # GPU-optimized batch size (larger for better GPU utilization)
     gpu_batch_size = 64 if tf.config.list_physical_devices('GPU') else 32
     
-    # GPU-optimized callbacks
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
             patience=8, 
@@ -484,17 +417,14 @@ for config in model_configs:
             monitor='val_loss',
             min_lr=1e-7
         ),
-        # Add GPU memory monitoring
         tf.keras.callbacks.TerminateOnNaN(),
     ]
     
-    # Convert data to float32 for mixed precision training
     X_task_train = X_task_train.astype(np.float32)
     X_task_val = X_task_val.astype(np.float32)
     y_task_train = y_task_train.astype(np.float32)
     y_task_val = y_task_val.astype(np.float32)
     
-    # Use tf.data for better GPU performance
     train_dataset = tf.data.Dataset.from_tensor_slices((X_task_train, y_task_train))
     train_dataset = train_dataset.batch(gpu_batch_size).prefetch(tf.data.AUTOTUNE)
     
@@ -504,36 +434,28 @@ for config in model_configs:
     history = model.fit(
         train_dataset,
         validation_data=val_dataset,
-        epochs=50,  # Increased epochs for better training with GPU
+        epochs=50,
         callbacks=callbacks,
         verbose=1
     )
     
-    # Store model and history
     models[task_name] = model
     histories[task_name] = history
     
     print(f"\n{task_name.upper()} model training completed!")
 
-print(f"\n{'='*60}")
-print("All 4 models trained successfully!")
-print(f"{'='*60}")
 
-# Print GPU utilization summary
 if tf.config.list_physical_devices('GPU'):
-    print("\n=== GPU TRAINING SUMMARY ===")
-    print(f"Mixed Precision: {tf.keras.mixed_precision.global_policy().name}")
     print(f"Batch Size Used: {gpu_batch_size}")
-    print(f"Total Epochs: 50 per model")
     print("GPU Memory Growth: Enabled")
-    print("Data Pipeline: tf.data with prefetch")
-    print("="*35)
 
-# Evaluate all models and save results
 performance_results, all_predictions = evaluate_separate_models(models, X_test, y_test)
 
-# Save all results using evaluation utilities
 save_separate_models_results(models, histories, label_encoders, X_train, X_val, X_test, 
                             y_train, y_val, y_test, performance_results)
 
 print("\nTraining completed! 4 separate GPU-optimized models trained for each task.")
+
+import tensorflow as tf
+print("TensorFlow version:", tf.__version__)
+print("Available GPUs:", tf.config.list_physical_devices('GPU'))
