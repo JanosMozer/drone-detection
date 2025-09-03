@@ -2,5 +2,4 @@ dataset/
 venv/
 __pycache__/
 results/
-train_CUDA.sh
 test.py
