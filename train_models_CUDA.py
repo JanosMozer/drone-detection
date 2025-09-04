@@ -96,9 +96,9 @@ SR = 22050
 DURATION = 5
 SAMPLES_PER_SEGMENT = SR*DURATION
 N_FFT = 2048
-HOP_LENGTH = 1024 
+HOP_LENGTH = 512 
 EXP_VECTORS_PER_SEGMENT = math.floor(SAMPLES_PER_SEGMENT/HOP_LENGTH)
-N_MELS = 128
+N_MELS = 96
 EXP_INPUT_SHAPE = (N_MELS, EXP_VECTORS_PER_SEGMENT)
 print('Expected spectrogram shape:', EXP_INPUT_SHAPE)
 
@@ -125,6 +125,8 @@ def audio_to_spectrogram(filename):
                                               sr=sr, n_fft=N_FFT, 
                                               n_mels=N_MELS, 
                                               hop_length=HOP_LENGTH,
+                                              fmin=20,
+                                              fmax=10000,
                                               window='hann')
         
         db_spec = librosa.power_to_db(spec, ref=0.0)
