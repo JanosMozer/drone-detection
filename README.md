@@ -24,7 +24,7 @@ This project implements aircraft classification from audio recordings using **fo
 - **Aircraft Recordings**: 625 (class=1)
 - **No Aircraft Recordings**: 1,270 (class=0)
 - **Audio Format**: WAV files
-- **Duration**: Variable (typically 10-60 seconds)
+- **Duration**: Variable
 
 ### Target Classification Variables
 
