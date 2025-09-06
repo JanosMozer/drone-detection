@@ -40,7 +40,7 @@ if gpus:
     except RuntimeError as e:
         print(f"GPU configuration error: {e}")
 else:
-    print("No GPU found. Training will use CPU.")
+    print("No GPU found, proceeding with CPU.")
 
 tf.debugging.set_log_device_placement(False)
 
@@ -84,7 +84,6 @@ def get_audio_path_and_labels(df, filename):
     
     return filepath, labels
 
-# function to load a file to play and show it's waveform
 def load_show_audio(filename):
     path, labels = get_audio_path_and_labels(df, filename)
     if path is None:
