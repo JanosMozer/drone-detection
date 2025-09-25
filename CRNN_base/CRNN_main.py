@@ -65,14 +65,14 @@ def main():
     callbacks = [
         progress_bar,
         EarlyStopping(
-            monitor=f"{TASK_CONFIG['task_name']}_val_loss", 
+            monitor="val_loss", 
             patience=TRAINING_CONFIG['patience_early_stop'], 
             min_delta=TRAINING_CONFIG['min_delta']
         ),
         ModelCheckpoint(
             dirpath=DATA_CONFIG['results_dir'], 
             filename='best_aircraft_detection_model', 
-            monitor=f"{TASK_CONFIG['task_name']}_val_loss", 
+            monitor="val_loss", 
             save_top_k=1,
             mode='min'
         )
