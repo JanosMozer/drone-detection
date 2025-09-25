@@ -54,24 +54,24 @@ MODEL_CONFIG = {
     'input_channels': 1,
     'n_mels': AUDIO_CONFIG['n_mels'],
     'time_steps': AUDIO_CONFIG['exp_vectors_per_segment'],
-    'conv_channels': [64, 128, 256, 512],  # Increased capacity for better feature extraction
+    'conv_channels': [32, 64, 128, 256],  # Reduced from [64, 128, 256, 512]
     'conv_kernel_size': (3, 3),
     'pool_size': (2, 2),
-    'dropout_conv': 0.3,  # Slightly increased for regularization
-    'rnn_hidden_size': 256,
+    'dropout_conv': 0.2,  # Reduced from 0.3
+    'rnn_hidden_size': 128,  # Reduced from 256
     'rnn_num_layers': 2,
-    'rnn_dropout': 0.3,
-    'attention_heads': 8,
-    'attention_dim': 256,
-    'fc_hidden_size': 512,
-    'dropout_fc': 0.5
+    'rnn_dropout': 0.2,  # Reduced from 0.3
+    'attention_heads': 4,  # Reduced from 8
+    'attention_dim': 128,  # Reduced from 256
+    'fc_hidden_size': 256,  # Reduced from 512
+    'dropout_fc': 0.4  # Reduced from 0.5
 }
 
 # Training parameters
 TRAINING_CONFIG = {
-    'batch_size': 64,
-    'max_epochs': 100,
-    'learning_rate': 1e-4,
+    'batch_size': 80,
+    'max_epochs': 50,
+    'learning_rate': 5e-3,  # Increased from 1e-4 for faster initial learning
     'weight_decay': 1e-5,
     'patience_early_stop': 15,
     'patience_lr_reduce': 8,
@@ -84,7 +84,7 @@ TRAINING_CONFIG = {
 
 # Task configuration - focused on aircraft detection only
 TASK_CONFIG = {
-    'task_name': 'aircraft_detection',
+    'task_name': 'train',
     'num_classes': 1,  # Binary classification with sigmoid
     'loss_type': 'binary',
     'class_weights': {0: 1.0, 1: 2.03}  # Adjusted for class imbalance (1270 vs 625)

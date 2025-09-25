@@ -86,7 +86,7 @@ def main():
         accelerator='auto',
         devices='auto',
         precision='16-mixed',
-        log_every_n_steps=50,
+        log_every_n_steps=5,
         enable_progress_bar=True,
         enable_model_summary=False  # We handle this manually
     )
