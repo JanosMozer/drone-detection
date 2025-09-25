@@ -18,6 +18,11 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
 from evaluation_utils import save_separate_models_results, evaluate_separate_models
+from datetime import datetime
+
+# Create timestamped results directory
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+RESULTS_DIR = f"results/{timestamp}"
 
 tf.get_logger().setLevel('ERROR')
 
@@ -35,13 +40,12 @@ if gpus:
     except RuntimeError as e:
         print(f"GPU configuration error: {e}")
 else:
-    print("No GPU found. Training will use CPU.")
+    print("No GPU found, proceeding with CPU.")
 
 tf.debugging.set_log_device_placement(False)
 
 # Load the dataset
 df = pd.read_csv('dataset/sample_meta.csv')
-print(f"Dataset loaded: {len(df)} samples")
 
 AUDIO_DIR = 'dataset/audio/audio'
 
@@ -53,7 +57,6 @@ TARGET_COLUMNS = {
     'fueltype': 'fueltype'
 }
 
-print("Training 4 separate models, one for each task")
 
 def get_audio_path_and_labels(df, filename):
     """Get audio file path and all target labels for multi-output classification"""
@@ -81,7 +84,6 @@ def get_audio_path_and_labels(df, filename):
     
     return filepath, labels
 
-# function to load a file to play and show it's waveform
 def load_show_audio(filename):
     path, labels = get_audio_path_and_labels(df, filename)
     if path is None:
@@ -96,9 +98,9 @@ SR = 22050
 DURATION = 5
 SAMPLES_PER_SEGMENT = SR*DURATION
 N_FFT = 2048
-HOP_LENGTH = 1024 
+HOP_LENGTH = 512 
 EXP_VECTORS_PER_SEGMENT = math.floor(SAMPLES_PER_SEGMENT/HOP_LENGTH)
-N_MELS = 128
+N_MELS = 96
 EXP_INPUT_SHAPE = (N_MELS, EXP_VECTORS_PER_SEGMENT)
 print('Expected spectrogram shape:', EXP_INPUT_SHAPE)
 
@@ -125,6 +127,8 @@ def audio_to_spectrogram(filename):
                                               sr=sr, n_fft=N_FFT, 
                                               n_mels=N_MELS, 
                                               hop_length=HOP_LENGTH,
+                                              fmin=20,
+                                              fmax=10000,
                                               window='hann')
         
         db_spec = librosa.power_to_db(spec, ref=0.0)
@@ -345,9 +349,6 @@ model_configs = [
 # Train each model separately
 for config in model_configs:
     task_name = config['name']
-    print(f"\n{'='*50}")
-    print(f"Training {task_name.upper()} model")
-    print(f"{'='*50}")
     
     model = build_single_task_model(
         input_shape, 
@@ -371,7 +372,6 @@ for config in model_configs:
         run_eagerly=False
     )
     
-    print(f"\n{task_name.upper()} Model Architecture:")
     model.summary()
     
     if config['data_filter'] == 'engnum_valid':
@@ -396,23 +396,20 @@ for config in model_configs:
         X_task_val = X_val
         y_task_val = y_val[task_name]
     
-    print(f"\nTraining data shape: {X_task_train.shape}")
-    print(f"Training labels shape: {y_task_train.shape}")
-    
-    print(f"\nTraining {task_name} model on GPU...")
     
     gpu_batch_size = 64 if tf.config.list_physical_devices('GPU') else 32
     
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
-            patience=8, 
+            patience=15, 
             restore_best_weights=True, 
             verbose=1,
-            monitor='val_loss'
+            monitor='val_loss',
+            min_delta=0.001
         ),
         tf.keras.callbacks.ReduceLROnPlateau(
             factor=0.5, 
-            patience=4, 
+            patience=8, 
             verbose=1,
             monitor='val_loss',
             min_lr=1e-7
@@ -442,20 +439,13 @@ for config in model_configs:
     models[task_name] = model
     histories[task_name] = history
     
-    print(f"\n{task_name.upper()} model training completed!")
 
 
 if tf.config.list_physical_devices('GPU'):
     print(f"Batch Size Used: {gpu_batch_size}")
-    print("GPU Memory Growth: Enabled")
 
 performance_results, all_predictions = evaluate_separate_models(models, X_test, y_test)
 
 save_separate_models_results(models, histories, label_encoders, X_train, X_val, X_test, 
-                            y_train, y_val, y_test, performance_results)
+                            y_train, y_val, y_test, performance_results, results_dir=RESULTS_DIR)
 
-print("\nTraining completed! 4 separate GPU-optimized models trained for each task.")
-
-import tensorflow as tf
-print("TensorFlow version:", tf.__version__)
-print("Available GPUs:", tf.config.list_physical_devices('GPU'))
