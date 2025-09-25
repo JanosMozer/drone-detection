@@ -289,8 +289,8 @@ class CRNNModel(pl.LightningModule):
             preds = torch.argmax(logits, dim=1)
             acc = (preds == y).float().mean()
         
-        self.log(f'{self.task_name}_train_loss', loss, prog_bar=True)
-        self.log(f'{self.task_name}_train_acc', acc, prog_bar=True)
+        self.log('train_loss', loss, prog_bar=True)
+        self.log('train_acc', acc, prog_bar=True)
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -307,8 +307,8 @@ class CRNNModel(pl.LightningModule):
             preds = torch.argmax(logits, dim=1)
             acc = (preds == y).float().mean()
         
-        self.log(f'{self.task_name}_val_loss', loss, prog_bar=True)
-        self.log(f'{self.task_name}_val_acc', acc, prog_bar=True)
+        self.log('val_loss', loss, prog_bar=True)
+        self.log('val_acc', acc, prog_bar=True)
         return loss
     
     def configure_optimizers(self):
@@ -330,7 +330,7 @@ class CRNNModel(pl.LightningModule):
             'optimizer': optimizer,
             'lr_scheduler': {
                 'scheduler': scheduler,
-                'monitor': f'{self.task_name}_val_loss',
+                'monitor': 'val_loss',
                 'interval': 'epoch',
                 'frequency': 1
             }
