@@ -54,31 +54,31 @@ MODEL_CONFIG = {
     'input_channels': 1,
     'n_mels': AUDIO_CONFIG['n_mels'],
     'time_steps': AUDIO_CONFIG['exp_vectors_per_segment'],
-    'conv_channels': [32, 64, 128, 256],  # Reduced from [64, 128, 256, 512]
+    'conv_channels': [16, 32, 64, 128],  # Smaller than current [32, 64, 128, 256]
     'conv_kernel_size': (3, 3),
     'pool_size': (2, 2),
-    'dropout_conv': 0.2,  # Reduced from 0.3
-    'rnn_hidden_size': 128,  # Reduced from 256
-    'rnn_num_layers': 2,
+    'dropout_conv': 0.1,  # Reduce from 0.2
+    'rnn_hidden_size': 64,  # Reduce from 128
+    'rnn_num_layers': 1,  # Reduce from 2
     'rnn_dropout': 0.2,  # Reduced from 0.3
-    'attention_heads': 4,  # Reduced from 8
+    'attention_heads': 2,  # Reduce from 4
     'attention_dim': 128,  # Reduced from 256
-    'fc_hidden_size': 256,  # Reduced from 512
-    'dropout_fc': 0.4  # Reduced from 0.5
+    'fc_hidden_size': 128,  # Reduce from 256
+    'dropout_fc': 0.3  # Reduce from 0.4
 }
 
 # Training parameters
 TRAINING_CONFIG = {
     'batch_size': 80,
     'max_epochs': 50,
-    'learning_rate': 5e-3,  # Increased from 1e-4 for faster initial learning
+    'learning_rate': 1e-3,  # Reduce from 5e-3
     'weight_decay': 1e-5,
-    'patience_early_stop': 15,
-    'patience_lr_reduce': 8,
-    'lr_reduce_factor': 0.5,
-    'min_lr': 1e-7,
+    'patience_early_stop': 25,  # Increase from 15 to use more data
+    'patience_lr_reduce': 5,    # Reduce from 8 for faster LR adjustments
+    'lr_reduce_factor': 0.3,    # More aggressive reduction from 0.5
+    'min_lr': 1e-6,             # Higher than 1e-7
     'min_delta': 0.001,
-    'num_workers': 4,
+    'num_workers': 6,
     'pin_memory': True
 }
 
